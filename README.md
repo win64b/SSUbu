@@ -25,7 +25,7 @@
 
 1. Скачайте скрипт на ваш сервер Ubuntu 24.04:
    ```bash
-   curl -O https://raw.githubusercontent.com/<ВАШ_ПОЛЬЗОВАТЕЛЬ>/SSUbu/main/setup_ubuntu_hyperv.sh
+   curl -O https://raw.githubusercontent.com/win64b/SSUbu/master/setup_ubuntu_hyperv.sh
    ```
 2. Сделайте его исполняемым:
    ```bash

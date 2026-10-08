@@ -65,11 +65,67 @@ setup_firewall() {
         apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ufw
     fi
 
-    ufw allow OpenSSH
+    # SSH доступ разрешаем всегда, чтобы не потерять удаленное управление
+    ufw allow OpenSSH comment 'SSH Remote Access'
+    local opened_ports="SSH (22)"
+
+    # Проверка наличия установленного Zabbix
+    log_info "Проверка наличия компонентов Zabbix в системе..."
+    local has_zabbix_server=false
+    local has_zabbix_agent=false
+
+    # Проверка Zabbix Server / Proxy / Web
+    if command -v zabbix_server >/dev/null 2>&1 || \
+       command -v zabbix_proxy >/dev/null 2>&1 || \
+       [ -x /usr/sbin/zabbix_server ] || \
+       [ -f /etc/zabbix/zabbix_server.conf ] || \
+       [ -f /etc/zabbix/zabbix_proxy.conf ] || \
+       [ -d /usr/share/zabbix ] || \
+       (dpkg -l 'zabbix-server*' 'zabbix-proxy*' 'zabbix-frontend*' 'zabbix-web*' 'zabbix-nginx*' 'zabbix-apache*' 2>/dev/null | grep -q '^ii') || \
+       (systemctl list-unit-files 'zabbix-server*' 'zabbix-proxy*' 2>/dev/null | grep -qE 'zabbix-(server|proxy)'); then
+        has_zabbix_server=true
+    fi
+
+    # Проверка Zabbix Agent (zabbix-agent или zabbix-agent2)
+    if command -v zabbix_agentd >/dev/null 2>&1 || \
+       command -v zabbix_agent2 >/dev/null 2>&1 || \
+       [ -x /usr/sbin/zabbix_agentd ] || \
+       [ -x /usr/sbin/zabbix_agent2 ] || \
+       [ -f /etc/zabbix/zabbix_agentd.conf ] || \
+       [ -f /etc/zabbix/zabbix_agent2.conf ] || \
+       (dpkg -l 'zabbix-agent*' 2>/dev/null | grep -q '^ii') || \
+       (systemctl list-unit-files 'zabbix-agent*' 2>/dev/null | grep -q 'zabbix-agent'); then
+        has_zabbix_agent=true
+    fi
+
+    # Резервная общая проверка (наличие конфигураций в /etc/zabbix или любого пакета zabbix-*)
+    if [ "$has_zabbix_server" = false ] && [ "$has_zabbix_agent" = false ]; then
+        if [ -d /etc/zabbix ] || (dpkg -l 'zabbix-*' 2>/dev/null | grep -q '^ii'); then
+            has_zabbix_server=true
+            has_zabbix_agent=true
+        fi
+    fi
+
+    if [ "$has_zabbix_server" = true ]; then
+        log_info "Обнаружен Zabbix Server / Web. Открытие портов мониторинга..."
+        ufw allow 80/tcp comment 'Zabbix Web HTTP'
+        ufw allow 443/tcp comment 'Zabbix Web HTTPS'
+        ufw allow 10051/tcp comment 'Zabbix Server Trapper'
+        ufw allow 10050/tcp comment 'Zabbix Agent'
+        ufw allow 162/udp comment 'SNMP Traps'
+        opened_ports="$opened_ports, Web (80/443), Zabbix Server (10051), Zabbix Agent (10050), SNMP Traps (162/udp)"
+    elif [ "$has_zabbix_agent" = true ]; then
+        log_info "Обнаружен Zabbix Agent. Открытие порта для опроса агента..."
+        ufw allow 10050/tcp comment 'Zabbix Agent'
+        opened_ports="$opened_ports, Zabbix Agent (10050)"
+    else
+        log_info "Установленный Zabbix не обнаружен. Порты для Zabbix не открывались."
+    fi
+
     ufw default deny incoming
     ufw default allow outgoing
     ufw --force enable
-    log_info "UFW активирован. Разрешен только OpenSSH (порт 22)."
+    log_info "UFW активирован. Разрешены: $opened_ports."
 }
 
 setup_security_hardening() {
